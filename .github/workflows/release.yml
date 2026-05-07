@@ -76,13 +76,9 @@ jobs:
           - runner: ubuntu-latest
             package_dir: packages/gondolin-krun-runner-linux-x64
             package_name: '@earendil-works/gondolin-krun-runner-linux-x64'
-            zig_archive: zig-x86_64-linux-0.16.0.tar.xz
-            zig_url: https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz
           - runner: macos-14
             package_dir: packages/gondolin-krun-runner-darwin-arm64
             package_name: '@earendil-works/gondolin-krun-runner-darwin-arm64'
-            zig_archive: zig-aarch64-macos-0.16.0.tar.xz
-            zig_url: https://ziglang.org/download/0.16.0/zig-aarch64-macos-0.16.0.tar.xz
     steps:
       - uses: actions/checkout@v4
         with:
@@ -95,11 +91,9 @@ jobs:
           registry-url: "https://registry.npmjs.org"
 
       - name: Install Zig
-        run: |
-          curl -L "${{ matrix.zig_url }}" | tar -xJ
-          ZIG_DIR="${{ matrix.zig_archive }}"
-          ZIG_DIR="${ZIG_DIR%.tar.xz}"
-          echo "$PWD/$ZIG_DIR" >> "$GITHUB_PATH"
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
