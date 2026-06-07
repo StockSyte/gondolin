@@ -4,6 +4,7 @@ import fs from "fs";
 import net from "net";
 import os from "os";
 import path from "path";
+import readline from "node:readline/promises";
 import { PassThrough } from "stream";
 import { fileURLToPath } from "url";
 
@@ -14,6 +15,8 @@ import type { VirtualProvider } from "../src/vfs/node/index.ts";
 import { MemoryProvider, RealFSProvider } from "../src/vfs/node/index.ts";
 import { ReadonlyProvider } from "../src/vfs/readonly.ts";
 import { createHttpHooks } from "../src/http/hooks.ts";
+import { suggestHostsForSecret } from "../src/secret-host-suggestions.ts";
+import { ensureTrufflehogBinary, getTrufflehogStatus } from "../src/trufflehog.ts";
 import {
   FrameReader,
   buildExecRequest,
@@ -222,6 +225,7 @@ function usage() {
     "  build        Build custom guest assets (kernel, initramfs, rootfs)",
   );
   console.log("  image        Manage local image refs and objects");
+  console.log("  tools        Inspect/download managed helper tools");
   console.log("  help         Show this help");
   console.log("\nRun gondolin <command> --help for command-specific flags.");
 }
@@ -272,9 +276,9 @@ function bashUsage() {
   console.log(
     "  --allow-host HOST               Allow HTTP requests to host (can repeat)",
   );
-  console.log("  --host-secret NAME@HOST[,HOST...][=VALUE]");
+  console.log("  --host-secret NAME[=VALUE] | NAME@HOST[,HOST...][=VALUE]");
   console.log(
-    "                                  Add secret for specified hosts",
+    "                                  Add secret with explicit hosts or discover suggestions",
   );
   console.log(
     "                                  If =VALUE is omitted, reads from $NAME",
@@ -419,9 +423,9 @@ function execUsage() {
   console.log();
   console.log("Network Options (VM mode only):");
   console.log("  --allow-host HOST               Allow HTTP requests to host");
-  console.log("  --host-secret NAME@HOST[,HOST...][=VALUE]");
+  console.log("  --host-secret NAME[=VALUE] | NAME@HOST[,HOST...][=VALUE]");
   console.log(
-    "                                  Add secret for specified hosts",
+    "                                  Add secret with explicit hosts or discover suggestions",
   );
   console.log(
     "  --dns MODE                      DNS mode: synthetic|trusted|open (default: synthetic)",
@@ -575,12 +579,29 @@ function parseMount(spec: string): MountSpec {
 }
 
 function parseHostSecret(spec: string): SecretSpec {
-  // Format: NAME@HOST[,HOST...][=VALUE]
+  // Formats:
+  //   NAME
+  //   NAME=VALUE
+  //   NAME@HOST[,HOST...]
+  //   NAME@HOST[,HOST...]=VALUE
   const atIndex = spec.indexOf("@");
+
   if (atIndex === -1) {
-    throw new Error(
-      `Invalid host-secret format: ${spec} (expected NAME@HOST[,HOST...][=VALUE])`,
-    );
+    const eqIndex = spec.indexOf("=");
+    const name = (eqIndex === -1 ? spec : spec.slice(0, eqIndex)).trim();
+    if (!name) {
+      throw new Error(`Invalid host-secret format: ${spec} (empty name)`);
+    }
+
+    const value =
+      eqIndex === -1
+        ? process.env[name]
+        : spec.slice(eqIndex + 1);
+    if (value === undefined) {
+      throw new Error(`Environment variable ${name} not set for host-secret`);
+    }
+
+    return { name, value, hosts: [] };
   }
 
   const name = spec.slice(0, atIndex);
@@ -595,7 +616,6 @@ function parseHostSecret(spec: string): SecretSpec {
   let value: string;
 
   if (eqIndex === -1) {
-    // No explicit value, read from environment
     hostsStr = afterAt;
     const envValue = process.env[name];
     if (envValue === undefined) {
@@ -613,6 +633,117 @@ function parseHostSecret(spec: string): SecretSpec {
   }
 
   return { name, value, hosts };
+}
+
+async function promptForSuggestedSecretHosts(
+  secret: SecretSpec,
+  suggestions: Array<{
+    host: string;
+    file: string;
+    line: number;
+    snippet: string;
+    count: number;
+  }>,
+): Promise<string[]> {
+  if (!process.stdin.isTTY || !process.stderr.isTTY) {
+    throw new Error(
+      `Suggested hosts were found for ${secret.name}, but interactive confirmation requires a TTY. Re-run with --host-secret ${secret.name}@HOST[,HOST...]`,
+    );
+  }
+
+  process.stderr.write(`Suggested hosts for ${secret.name}:\n`);
+  suggestions.forEach((suggestion, index) => {
+    process.stderr.write(
+      `  [${index + 1}] ${suggestion.host}  (${suggestion.file}:${suggestion.line}, hits=${suggestion.count})\n`,
+    );
+    if (suggestion.snippet) {
+      process.stderr.write(`      ${suggestion.snippet}\n`);
+    }
+  });
+
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stderr,
+  });
+  try {
+    const answer = (
+      await rl.question(
+        "Accept all suggested hosts? [Y/n] (or enter comma-separated numbers): ",
+      )
+    )
+      .trim()
+      .toLowerCase();
+
+    if (!answer || answer === "y" || answer === "yes" || answer === "a") {
+      return suggestions.map((suggestion) => suggestion.host);
+    }
+    if (answer === "n" || answer === "no") {
+      return [];
+    }
+
+    const indexes = answer
+      .split(",")
+      .map((part) => Number(part.trim()))
+      .filter((value) => Number.isInteger(value));
+    if (indexes.length === 0) {
+      return [];
+    }
+
+    const selected = new Set<string>();
+    for (const index of indexes) {
+      const suggestion = suggestions[index - 1];
+      if (!suggestion) {
+        return [];
+      }
+      selected.add(suggestion.host);
+    }
+    return [...selected];
+  } finally {
+    rl.close();
+  }
+}
+
+async function resolveSecretHosts(secrets: SecretSpec[]): Promise<SecretSpec[]> {
+  const resolved: SecretSpec[] = [];
+
+  for (const secret of secrets) {
+    if (secret.hosts.length > 0) {
+      resolved.push(secret);
+      continue;
+    }
+
+    process.stderr.write(
+      `Discovering suggested hosts for secret ${secret.name} with trufflehog...\n`,
+    );
+    const suggestions = await suggestHostsForSecret({
+      secretName: secret.name,
+      secretValue: secret.value,
+      cwd: process.cwd(),
+    });
+
+    if (suggestions.length === 0) {
+      throw new Error(
+        `No suggested hosts were found for secret ${secret.name}. Provide hosts explicitly with --host-secret ${secret.name}@HOST[,HOST...]`,
+      );
+    }
+
+    const acceptedHosts = await promptForSuggestedSecretHosts(
+      secret,
+      suggestions,
+    );
+    if (acceptedHosts.length === 0) {
+      throw new Error(
+        `No hosts were accepted for secret ${secret.name}. Re-run with --host-secret ${secret.name}@HOST[,HOST...]`,
+      );
+    }
+
+    resolved.push({
+      ...secret,
+      hosts: acceptedHosts,
+    });
+  }
+
+  return resolved;
 }
 
 function parseSshCredential(spec: string): SshCredentialSpec {
@@ -1403,6 +1534,8 @@ async function runExec(argv: string[] = process.argv.slice(2)) {
     // Socket mode (direct virtio connection)
     runExecSocket(args);
   } else {
+    args.common.secrets = await resolveSecretHosts(args.common.secrets);
+
     // VM mode (in-process server)
     await runExecVm(args);
   }
@@ -1730,6 +1863,7 @@ function parseBashArgs(argv: string[]): BashArgs {
 
 async function runBash(argv: string[]) {
   const args = parseBashArgs(argv);
+  args.secrets = await resolveSecretHosts(args.secrets);
   const vmOptions = buildVmOptions(args);
   let vm: VM | null = null;
   let ingressAccess: { url: string; close(): Promise<void> } | null = null;
@@ -2634,6 +2768,117 @@ async function runBuild(argv: string[]) {
   }
 }
 
+function toolsUsage() {
+  console.log("Usage: gondolin tools <command> [options]");
+  console.log();
+  console.log("Inspect and manage Gondolin helper tools.");
+  console.log();
+  console.log("Commands:");
+  console.log("  trufflehog [--install] [--json]");
+  console.log("      Show managed trufflehog helper status");
+  console.log("      --install downloads it if missing");
+}
+
+async function runTools(argv: string[]) {
+  const [subcommand, ...rest] = argv;
+
+  if (
+    !subcommand ||
+    subcommand === "--help" ||
+    subcommand === "-h" ||
+    subcommand === "help"
+  ) {
+    toolsUsage();
+    process.exit(subcommand ? 0 : 1);
+  }
+
+  switch (subcommand) {
+    case "trufflehog": {
+      let install = false;
+      let asJson = false;
+
+      for (const arg of rest) {
+        if (arg === "--help" || arg === "-h") {
+          toolsUsage();
+          return;
+        }
+        if (arg === "--install") {
+          install = true;
+          continue;
+        }
+        if (arg === "--json") {
+          asJson = true;
+          continue;
+        }
+        throw new Error(`unexpected argument for tools trufflehog: ${arg}`);
+      }
+
+      if (install) {
+        await ensureTrufflehogBinary({
+          log: (msg) => process.stderr.write(`${msg}\n`),
+        });
+      }
+
+      const status = await getTrufflehogStatus();
+      const resolvedPath =
+        status.configuredPath ??
+        (status.configuredDir
+          ? path.join(status.configuredDir, "trufflehog")
+          : status.managedPath);
+      const source = status.configuredPath
+        ? "configured-path"
+        : status.configuredDir
+          ? "configured-dir"
+          : status.installed
+            ? "managed"
+            : "downloadable";
+
+      if (asJson) {
+        console.log(
+          JSON.stringify(
+            {
+              tool: "trufflehog",
+              version: status.version,
+              platform: status.platform,
+              source,
+              installed: status.installed,
+              configuredPath: status.configuredPath,
+              configuredDir: status.configuredDir,
+              managedPath: status.managedPath,
+              resolvedPath,
+              downloadUrl: status.downloadUrl,
+              ref: status.ref,
+              buildId: status.buildId,
+            },
+            null,
+            2,
+          ),
+        );
+        return;
+      }
+
+      console.log("tool: trufflehog");
+      console.log(`ref: ${status.ref}`);
+      console.log(`build id: ${status.buildId}`);
+      console.log(`version: ${status.version}`);
+      console.log(`platform: ${status.platform}`);
+      console.log(`source: ${source}`);
+      console.log(`installed: ${status.installed ? "yes" : "no"}`);
+      console.log(`resolved path: ${resolvedPath}`);
+      if (status.configuredDir) {
+        console.log(`configured dir: ${status.configuredDir}`);
+      }
+      if (!status.configuredPath && !status.configuredDir) {
+        console.log(`managed path: ${status.managedPath}`);
+        console.log(`download url: ${status.downloadUrl}`);
+      }
+      return;
+    }
+    default:
+      throw new Error(`unknown tools command: ${subcommand}`);
+  }
+}
+
 function imageUsage() {
   console.log("Usage: gondolin image <command> [options]");
   console.log();
@@ -2929,6 +3174,9 @@ async function main() {
       return;
     case "image":
       await runImage(args);
+      return;
+    case "tools":
+      await runTools(args);
       return;
     default:
       console.error(`Unknown command: ${command}`);
