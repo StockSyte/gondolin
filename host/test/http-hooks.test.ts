@@ -655,6 +655,32 @@ test("http hooks reject overlapping secret placeholders", () => {
   );
 });
 
+test("http hooks add secrets after creation", async () => {
+  const { httpHooks, secretManager } = createHttpHooks();
+
+  secretManager.addSecret("API_KEY", {
+    hosts: ["example.com"],
+    value: "secret-value",
+  });
+
+  const env = secretManager.getEnv();
+  assert.equal(typeof env.API_KEY, "string");
+  assert.match(env.API_KEY, /^GONDOLIN_SECRET_/);
+
+  const request = await runRequestHook(
+    httpHooks.onRequest!,
+    makeRequest({
+      method: "GET",
+      url: "https://example.com/data",
+      headers: {
+        authorization: `Bearer ${env.API_KEY}`,
+      },
+    }),
+  );
+
+  assert.equal(request.headers.get("authorization"), "Bearer secret-value");
+});
+
 test("http hooks update existing secrets after creation", async () => {
   const { httpHooks, env, secretManager } = createHttpHooks({
     secrets: {

@@ -69,6 +69,8 @@ export type CreateHttpHooksOptions = {
   onResponse?: HttpHooks["onResponse"];
 };
 
+export type AddSecretOptions = SecretDefinition;
+
 export type UpdateSecretOptions = {
   /** updated secret value */
   value?: string;
@@ -90,6 +92,10 @@ export type SecretManagerEntry = {
 export type SecretManager = {
   /** list configured secrets */
   listSecrets(): SecretManagerEntry[];
+  /** guest-visible placeholder env vars for non-deleted secrets */
+  getEnv(): Record<string, string>;
+  /** add a new secret */
+  addSecret(name: string, secret: AddSecretOptions): void;
   /** update an existing secret */
   updateSecret(name: string, options: UpdateSecretOptions): void;
   /** replace an existing secret with an empty string */
@@ -195,6 +201,34 @@ export function createHttpHooks(
         hosts: [...entry.hosts],
         deleted: entry.deleted,
       }));
+    },
+    getEnv() {
+      return Object.fromEntries(
+        getSecretEntries()
+          .filter((entry) => !entry.deleted)
+          .map((entry) => [entry.name, entry.placeholder]),
+      );
+    },
+    addSecret(name, secret) {
+      if (secretEntries.has(name)) {
+        throw new Error(`secret already exists: ${name}`);
+      }
+      const placeholder = resolveSecretPlaceholder(name, secret);
+      assertSecretPlaceholderIsSafe(
+        name,
+        placeholder,
+        secret.value,
+        secretEntries.values(),
+      );
+      secretEntries.set(name, {
+        name,
+        placeholder,
+        value: secret.value,
+        revokedValues: [],
+        hosts: uniqueHosts(secret.hosts),
+        deleted: false,
+      });
+      env[name] = placeholder;
     },
     updateSecret(name, update) {
       const entry = getSecretEntry(name);

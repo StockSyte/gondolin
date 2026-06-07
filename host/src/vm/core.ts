@@ -52,6 +52,7 @@ import {
 } from "../session-registry.ts";
 import { createMitmCaProvider, resolveMitmMounts } from "./mitm-vfs.ts";
 import type { EnvInput, VMOptions, VmVfsOptions } from "./types.ts";
+import type { SecretManager } from "../http/hooks.ts";
 import {
   buildShellEnv,
   envInputToEntries,
@@ -142,6 +143,39 @@ const VFS_READY_ATTEMPTS = Math.max(
   1,
   Math.ceil(VFS_READY_TIMEOUT_MS / (VFS_READY_SLEEP_SECONDS * 1000)),
 );
+
+const RUNTIME_SECRETS_ENV_FILENAME = "secrets.env";
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+function serializeSecretsEnvFile(env: Record<string, string>): string {
+  const entries = Object.entries(env).sort(([a], [b]) => a.localeCompare(b));
+  return entries.map(([key, value]) => `export ${key}=${shellQuote(value)}`).join("\n") + (entries.length > 0 ? "\n" : "");
+}
+
+function filterEnvInputByKeys(
+  env: EnvInput | undefined,
+  keys: Set<string>,
+): EnvInput | undefined {
+  if (!env || keys.size === 0) return env;
+  const filtered = envInputToEntries(env).filter(([key]) => !keys.has(key));
+  return filtered.length > 0 ? filtered.map(([key, value]) => `${key}=${value}`) : undefined;
+}
+
+function runtimeSecretNames(secretManager?: Pick<SecretManager, "listSecrets">): Set<string> {
+  return new Set((secretManager?.listSecrets() ?? []).map((entry) => entry.name));
+}
+
+function mergeExecEnvWithRuntimeSecrets(
+  baseEnv: EnvInput | undefined,
+  secretManager: Pick<SecretManager, "listSecrets" | "getEnv"> | undefined,
+  extraEnv?: EnvInput,
+): string[] | undefined {
+  const filteredBase = filterEnvInputByKeys(baseEnv, runtimeSecretNames(secretManager));
+  return mergeEnvInputs(filteredBase, mergeEnvInputs(secretManager?.getEnv(), extraEnv));
+}
 
 type ExecInput = string | string[];
 
@@ -239,6 +273,9 @@ export class VM {
   private checkpointed = false;
   private readonly baseOptionsForClone: VMOptions;
   private readonly defaultEnv: EnvInput | undefined;
+  /** runtime-managed secrets for newly spawned processes */
+  readonly secretManager?: SecretManager;
+  private gondolinEtcProvider: MemoryProvider | null = null;
   private connection: SandboxConnection | null = null;
   private connectPromise: Promise<void> | null = null;
   private readonly startSingleflight = new AsyncSingleflight<void>();
@@ -369,6 +406,10 @@ export class VM {
       options.sandbox?.netEnabled ?? true,
     );
 
+    this.secretManager = options.secretManager
+      ? this.createRuntimeSecretManager(options.secretManager)
+      : undefined;
+
     // Inject a guarded /etc/gondolin mount (host-authoritative ingress configuration)
     let gondolinMounts: Record<string, VirtualProvider> = {};
     let gondolinHooks: VfsHooks = {};
@@ -376,14 +417,14 @@ export class VM {
       const mountPaths = listMountPaths(options.vfs?.mounts);
       if (!mountPaths.includes("/etc/gondolin")) {
         const etcProvider = new MemoryProvider();
+        this.gondolinEtcProvider = etcProvider;
         this.gondolinEtc = createGondolinEtcMount(etcProvider);
-        gondolinMounts = {
-          "/etc/gondolin": etcProvider,
-        };
+        gondolinMounts["/etc/gondolin"] = etcProvider;
         gondolinHooks = createGondolinEtcHooks(
           this.gondolinEtc.listeners,
           etcProvider,
         ) as VfsHooks;
+        this.refreshRuntimeSecretsMount();
       }
     }
 
@@ -579,6 +620,38 @@ export class VM {
     }
   }
 
+  private createRuntimeSecretManager(secretManager: SecretManager): SecretManager {
+    return {
+      listSecrets: () => secretManager.listSecrets(),
+      getEnv: () => secretManager.getEnv(),
+      addSecret: (name, secret) => {
+        secretManager.addSecret(name, secret);
+        this.refreshRuntimeSecretsMount();
+      },
+      updateSecret: (name, options) => {
+        secretManager.updateSecret(name, options);
+        this.refreshRuntimeSecretsMount();
+      },
+      deleteSecret: (name) => {
+        secretManager.deleteSecret(name);
+        this.refreshRuntimeSecretsMount();
+      },
+    };
+  }
+
+  private refreshRuntimeSecretsMount() {
+    if (!this.gondolinEtcProvider || !this.secretManager) return;
+    const handle = this.gondolinEtcProvider.openSync(
+      `/${RUNTIME_SECRETS_ENV_FILENAME}`,
+      "w",
+    );
+    try {
+      handle.writeFileSync(serializeSecretsEnvFile(this.secretManager.getEnv()));
+    } finally {
+      handle.closeSync();
+    }
+  }
+
   /**
    * Start the VM.
    *
@@ -663,7 +736,10 @@ export class VM {
     const command = options.command ?? ["/bin/bash", "-i"];
     const shouldAttach = options.attach ?? process.stdin.isTTY;
 
-    const env = buildShellEnv(this.defaultEnv, options.env);
+    const env = buildShellEnv(
+      mergeExecEnvWithRuntimeSecrets(this.defaultEnv, this.secretManager),
+      options.env,
+    );
 
     const proc = this.exec(command, {
       env,
@@ -1111,7 +1187,12 @@ fi
     try {
       await this.start();
 
-      const mergedEnv = mergeEnvInputs(this.defaultEnv, options.env);
+      this.refreshRuntimeSecretsMount();
+      const mergedEnv = mergeExecEnvWithRuntimeSecrets(
+        this.defaultEnv,
+        this.secretManager,
+        options.env,
+      );
 
       const message = {
         type: "exec" as const,
@@ -2247,4 +2328,6 @@ export const __test = {
   mapToEnvArray,
   normalizeStartTimeoutMs,
   parseDiskSizeToBytes,
+  serializeSecretsEnvFile,
+  mergeExecEnvWithRuntimeSecrets,
 };

@@ -6,6 +6,7 @@ import type { RootfsMode } from "../build/config.ts";
 import type { SandboxServerOptions } from "../sandbox/server-options.ts";
 import type { VirtualProvider } from "../vfs/node/index.ts";
 import type { VfsHooks } from "../vfs/provider.ts";
+import type { SecretManager } from "../http/hooks.ts";
 
 export type EnvInput = string[] | Record<string, string>;
 
@@ -53,6 +54,8 @@ export type VMOptions = {
   vfs?: VmVfsOptions | null;
   /** default environment variables */
   env?: EnvInput;
+  /** runtime-managed secret placeholders for newly spawned processes */
+  secretManager?: SecretManager;
   /** vm memory size (qemu syntax, default: "1G") */
   memory?: string;
   /** vm cpu count (default: 2) */
