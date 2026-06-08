@@ -681,6 +681,51 @@ test("http hooks add secrets after creation", async () => {
   assert.equal(request.headers.get("authorization"), "Bearer secret-value");
 });
 
+test("http hooks can re-add a deleted secret", async () => {
+  const { httpHooks, secretManager } = createHttpHooks();
+
+  secretManager.addSecret("API_KEY", {
+    hosts: ["example.com"],
+    value: "old-secret",
+  });
+  const firstEnv = secretManager.getEnv();
+  secretManager.deleteSecret("API_KEY");
+  secretManager.addSecret("API_KEY", {
+    hosts: ["example.org"],
+    value: "new-secret",
+  });
+
+  const secondEnv = secretManager.getEnv();
+  assert.equal(secondEnv.API_KEY, firstEnv.API_KEY);
+
+  await assert.rejects(
+    () =>
+      httpHooks.onRequest!(
+        makeRequest({
+          method: "GET",
+          url: "https://example.com/data",
+          headers: {
+            authorization: `Bearer ${secondEnv.API_KEY}`,
+          },
+        }),
+      ),
+    (err) => err instanceof HttpRequestBlockedError,
+  );
+
+  const request = await runRequestHook(
+    httpHooks.onRequest!,
+    makeRequest({
+      method: "GET",
+      url: "https://example.org/data",
+      headers: {
+        authorization: `Bearer ${secondEnv.API_KEY}`,
+      },
+    }),
+  );
+
+  assert.equal(request.headers.get("authorization"), "Bearer new-secret");
+});
+
 test("http hooks update existing secrets after creation", async () => {
   const { httpHooks, env, secretManager } = createHttpHooks({
     secrets: {

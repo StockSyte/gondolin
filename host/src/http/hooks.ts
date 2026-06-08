@@ -210,24 +210,34 @@ export function createHttpHooks(
       );
     },
     addSecret(name, secret) {
-      if (secretEntries.has(name)) {
+      const existing = secretEntries.get(name);
+      if (existing && !existing.deleted) {
         throw new Error(`secret already exists: ${name}`);
       }
-      const placeholder = resolveSecretPlaceholder(name, secret);
+      const placeholder =
+        existing?.placeholder ?? resolveSecretPlaceholder(name, secret);
       assertSecretPlaceholderIsSafe(
         name,
         placeholder,
         secret.value,
-        secretEntries.values(),
+        getSecretEntries().filter((entry) => entry.name !== name),
       );
-      secretEntries.set(name, {
-        name,
-        placeholder,
-        value: secret.value,
-        revokedValues: [],
-        hosts: uniqueHosts(secret.hosts),
-        deleted: false,
-      });
+      if (existing) {
+        existing.placeholder = placeholder;
+        existing.value = secret.value;
+        existing.revokedValues = [];
+        existing.hosts = uniqueHosts(secret.hosts);
+        existing.deleted = false;
+      } else {
+        secretEntries.set(name, {
+          name,
+          placeholder,
+          value: secret.value,
+          revokedValues: [],
+          hosts: uniqueHosts(secret.hosts),
+          deleted: false,
+        });
+      }
       env[name] = placeholder;
     },
     updateSecret(name, update) {
