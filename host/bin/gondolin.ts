@@ -716,9 +716,7 @@ async function resolveSecretHosts(secrets: SecretSpec[]): Promise<SecretSpec[]> 
       `Discovering suggested hosts for secret ${secret.name} with trufflehog...\n`,
     );
     const suggestions = await suggestHostsForSecret({
-      secretName: secret.name,
       secretValue: secret.value,
-      cwd: process.cwd(),
     });
 
     if (suggestions.length === 0) {

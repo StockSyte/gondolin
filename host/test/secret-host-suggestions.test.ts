@@ -8,49 +8,16 @@ import { __test as suggestionTest } from "../src/secret-host-suggestions.ts";
 
 const {
   collectSuggestionsFromDetectorSource,
-  collectSuggestionsFromFile,
-  extractHosts,
   extractUrlHosts,
   mergeSuggestions,
   parseTrufflehogJsonLines,
 } = suggestionTest;
-
-test("extractHosts finds urls and bare hostnames", () => {
-  assert.deepEqual(extractHosts("see https://api.github.com/user and github.com"), [
-    "api.github.com",
-    "github.com",
-  ]);
-});
 
 test("extractUrlHosts only finds url hosts", () => {
   assert.deepEqual(
     extractUrlHosts('import "github.com/x/y" and https://api.openai.com/v1/me'),
     ["api.openai.com"],
   );
-});
-
-test("collectSuggestionsFromFile finds host evidence near secret value", () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "gondolin-secret-hosts-"));
-  const filePath = path.join(root, "sample.ts");
-
-  try {
-    fs.writeFileSync(
-      filePath,
-      [
-        'const baseUrl = "https://api.github.com";',
-        'const token = "secret-value";',
-        'fetch(`${baseUrl}/user`, { headers: { authorization: `Bearer ${token}` } });',
-      ].join("\n"),
-    );
-
-    const suggestions = collectSuggestionsFromFile(root, filePath, "secret-value");
-    assert.equal(suggestions.length, 1);
-    assert.equal(suggestions[0].host, "api.github.com");
-    assert.equal(suggestions[0].file, "sample.ts");
-    assert.equal(suggestions[0].line, 2);
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
 });
 
 test("parseTrufflehogJsonLines parses newline-delimited json", () => {
