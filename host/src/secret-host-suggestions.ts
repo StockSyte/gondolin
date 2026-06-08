@@ -2,7 +2,10 @@ import fs from "fs";
 import path from "path";
 import { spawn } from "node:child_process";
 
-import { ensureTrufflehogBinary, ensureTrufflehogSourceDir } from "./trufflehog.ts";
+import {
+  ensureTrufflehogBinary,
+  ensureTrufflehogSourceDir,
+} from "./build/trufflehog.ts";
 
 const URL_RE = /https?:\/\/[^\s"'`<>]+/gi;
 const DETECTOR_SOURCE_SKIP_FILE_RE = /(?:^|\/)(?:[^/]+_test|[^/]+_integration_test)\.go$/;

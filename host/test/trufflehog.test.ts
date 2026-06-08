@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import test from "node:test";
 
-import { __test } from "../src/trufflehog.ts";
+import { __test } from "../src/build/trufflehog.ts";
 
 test("resolveSupportedPlatform supports gondolin host platforms", () => {
   assert.equal(__test.resolveSupportedPlatform("darwin", "arm64"), "darwin-arm64");

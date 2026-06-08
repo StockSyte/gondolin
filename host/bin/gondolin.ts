@@ -16,7 +16,10 @@ import { MemoryProvider, RealFSProvider } from "../src/vfs/node/index.ts";
 import { ReadonlyProvider } from "../src/vfs/readonly.ts";
 import { createHttpHooks } from "../src/http/hooks.ts";
 import { suggestHostsForSecret } from "../src/secret-host-suggestions.ts";
-import { ensureTrufflehogBinary, getTrufflehogStatus } from "../src/trufflehog.ts";
+import {
+  ensureTrufflehogBinary,
+  getTrufflehogStatus,
+} from "../src/build/trufflehog.ts";
 import {
   FrameReader,
   buildExecRequest,

@@ -3,7 +3,13 @@ import os from "os";
 import path from "path";
 import { randomUUID } from "crypto";
 
-import { extractTarGz } from "./alpine/tar.ts";
+import { extractTarGz } from "../alpine/tar.ts";
+import {
+  cacheBaseDir,
+  downloadToBuffer,
+  fetchCachedJsonRegistry,
+  normalizeSha256,
+} from "./helpers.ts";
 
 const TRUFFLEHOG_REGISTRY_SCHEMA = 1 as const;
 const DEFAULT_TRUFFLEHOG_REF = "trufflehog:3.95.3";
@@ -40,15 +46,6 @@ type BuiltinTrufflehogRegistry = {
   builds: Record<string, TrufflehogRegistryBuild>;
 };
 
-type RegistryCache = {
-  /** source registry url */
-  url: string;
-  /** http etag */
-  etag?: string;
-  /** cached registry */
-  registry: BuiltinTrufflehogRegistry;
-};
-
 export interface EnsureTrufflehogOptions {
   /** explicit cache/store directory */
   storeDir?: string;
@@ -73,10 +70,6 @@ export interface TrufflehogStatus {
   buildId: string;
 }
 
-function cacheBaseDir(): string {
-  return process.env.XDG_CACHE_HOME ?? path.join(os.homedir(), ".cache");
-}
-
 export function getTrufflehogStoreDirectory(): string {
   return path.join(cacheBaseDir(), "gondolin", "tools", "trufflehog");
 }
@@ -85,10 +78,6 @@ function trufflehogRegistryUrl(value?: string): string {
   const explicit = value?.trim();
   if (explicit) return explicit;
   return DEFAULT_TRUFFLEHOG_REGISTRY_URL;
-}
-
-function registryCachePath(storeDir: string): string {
-  return path.join(storeDir, "builtin-trufflehog-registry-cache.json");
 }
 
 function objectDir(storeDir: string, buildId: string): string {
@@ -134,13 +123,6 @@ function parseRef(reference: string): string {
     throw new Error(`invalid trufflehog ref: ${reference}`);
   }
   return trimmed;
-}
-
-function normalizeSha256(value: unknown, label: string): string {
-  if (typeof value !== "string" || !/^[0-9a-f]{64}$/i.test(value)) {
-    throw new Error(`invalid ${label}: expected sha256 hex string`);
-  }
-  return value.toLowerCase();
 }
 
 function parseRegistryBuild(
@@ -270,87 +252,20 @@ function parseBuiltinTrufflehogRegistry(
   return { schema: TRUFFLEHOG_REGISTRY_SCHEMA, refs, builds };
 }
 
-function loadRegistryCache(url: string, storeDir: string): RegistryCache | null {
-  const cachePath = registryCachePath(storeDir);
-  if (!fs.existsSync(cachePath)) return null;
-
-  try {
-    const parsed = JSON.parse(fs.readFileSync(cachePath, "utf8")) as RegistryCache;
-    if (!parsed || typeof parsed !== "object") return null;
-    if (parsed.url !== url) return null;
-    return {
-      url,
-      etag: typeof parsed.etag === "string" ? parsed.etag : undefined,
-      registry: parseBuiltinTrufflehogRegistry(parsed.registry as unknown, url),
-    };
-  } catch {
-    return null;
-  }
-}
-
-function saveRegistryCache(cache: RegistryCache, storeDir: string): void {
-  fs.mkdirSync(storeDir, { recursive: true });
-  const cachePath = registryCachePath(storeDir);
-  const tmpPath = `${cachePath}.tmp-${randomUUID().slice(0, 8)}`;
-  fs.writeFileSync(tmpPath, JSON.stringify(cache, null, 2));
-  fs.renameSync(tmpPath, cachePath);
-}
-
 async function fetchBuiltinTrufflehogRegistry(options: {
   registryUrl?: string;
   storeDir?: string;
 }): Promise<BuiltinTrufflehogRegistry> {
   const storeDir = options.storeDir ?? getTrufflehogStoreDirectory();
   const url = trufflehogRegistryUrl(options.registryUrl);
-  const cached = loadRegistryCache(url, storeDir);
-
-  const headers: Record<string, string> = {
-    "User-Agent": "gondolin-trufflehog-registry",
-  };
-  if (cached?.etag) {
-    headers["If-None-Match"] = cached.etag;
-  }
-
-  let response: Response;
-  try {
-    response = await fetch(url, { headers });
-  } catch (error) {
-    if (cached) return cached.registry;
-    throw new Error(
-      `failed to fetch builtin trufflehog registry from ${url}: ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
-
-  if (response.status === 304 && cached) {
-    return cached.registry;
-  }
-  if (!response.ok) {
-    if (cached) return cached.registry;
-    throw new Error(
-      `failed to fetch builtin trufflehog registry: ${response.status} ${response.statusText} (${url})`,
-    );
-  }
-
-  const text = await response.text();
-  let raw: unknown;
-  try {
-    raw = JSON.parse(text);
-  } catch (error) {
-    throw new Error(
-      `failed to parse builtin trufflehog registry json from ${url}: ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
-
-  const registry = parseBuiltinTrufflehogRegistry(raw, url);
-  saveRegistryCache(
-    {
-      url,
-      etag: response.headers.get("etag") ?? undefined,
-      registry,
-    },
+  return await fetchCachedJsonRegistry({
+    url,
     storeDir,
-  );
-  return registry;
+    cacheFileName: "builtin-trufflehog-registry-cache.json",
+    userAgent: "gondolin-trufflehog-registry",
+    parse: parseBuiltinTrufflehogRegistry,
+    label: "builtin trufflehog registry",
+  });
 }
 
 async function resolveManagedBuild(
@@ -376,31 +291,6 @@ async function resolveManagedBuild(
     );
   }
   return { ref, buildId, build };
-}
-
-async function downloadToBuffer(
-  url: string,
-  expectedSha256: string | undefined,
-  userAgent: string,
-): Promise<Buffer> {
-  const response = await fetch(url, {
-    headers: { "User-Agent": userAgent },
-  });
-  if (!response.ok) {
-    throw new Error(
-      `failed to download ${url}: ${response.status} ${response.statusText}`,
-    );
-  }
-  const data = Buffer.from(await response.arrayBuffer());
-  if (expectedSha256) {
-    const hash = (await import("crypto")).createHash("sha256").update(data).digest("hex");
-    if (hash !== expectedSha256) {
-      throw new Error(
-        `downloaded checksum mismatch for ${url}\n  expected: ${expectedSha256}\n  got:      ${hash}`,
-      );
-    }
-  }
-  return data;
 }
 
 function findBinary(rootDir: string): string | null {
