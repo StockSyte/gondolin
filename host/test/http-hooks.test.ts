@@ -452,6 +452,34 @@ test("http hooks replace secret placeholders", async () => {
   });
 
   assert.deepEqual(allowedHosts, ["*"]);
+  assert.match(env.API_KEY, /^[0-9a-f]{48}\.api_key$/);
+
+  const request = await runRequestHook(
+    httpHooks.onRequest!,
+    makeRequest({
+      method: "GET",
+      url: "https://example.com/data",
+      headers: {
+        authorization: `Bearer ${env.API_KEY}`,
+      },
+    }),
+  );
+
+  assert.equal(request.headers.get("authorization"), "Bearer secret-value");
+});
+
+test("http hooks support legacy secret placeholder mode", async () => {
+  const { httpHooks, env } = createHttpHooks({
+    secretPlaceholderMode: "legacy",
+    secrets: {
+      API_KEY: {
+        hosts: ["example.com"],
+        value: "secret-value",
+      },
+    },
+  });
+
+  assert.match(env.API_KEY, /^GONDOLIN_SECRET_/);
 
   const request = await runRequestHook(
     httpHooks.onRequest!,
@@ -1164,6 +1192,9 @@ test("http hooks replace secret placeholders in basic auth", async () => {
       },
     },
   });
+
+  assert.match(env.BASIC_USER, /^[0-9a-f]{48}\.basic_user$/);
+  assert.match(env.BASIC_PASS, /^[0-9a-f]{48}\.basic_pass$/);
 
   const placeholderToken = Buffer.from(
     `${env.BASIC_USER}:${env.BASIC_PASS}`,

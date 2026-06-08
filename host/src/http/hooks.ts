@@ -176,12 +176,14 @@ export function createHttpHooks(
       secretMarker,
       identifier,
     );
-    assertSecretPlaceholderIsSafe(
-      name,
-      placeholder,
-      secret.value,
-      secretEntries.values(),
-    );
+    if (!(secretPlaceholderMode === "marker-env" && secret.placeholder === undefined)) {
+      assertSecretPlaceholderIsSafe(
+        name,
+        placeholder,
+        secret.value,
+        secretEntries.values(),
+      );
+    }
     env[name] = placeholder;
     secretEntries.set(name, {
       name,
