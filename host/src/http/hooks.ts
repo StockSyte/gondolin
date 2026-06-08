@@ -69,8 +69,6 @@ export type CreateHttpHooksOptions = {
   onResponse?: HttpHooks["onResponse"];
 };
 
-export type AddSecretOptions = SecretDefinition;
-
 export type UpdateSecretOptions = {
   /** updated secret value */
   value?: string;
@@ -93,7 +91,7 @@ export type SecretManager = {
   /** list configured secrets */
   listSecrets(): SecretManagerEntry[];
   /** add a new secret */
-  addSecret(name: string, secret: AddSecretOptions): void;
+  addSecret(name: string, secret: SecretDefinition): void;
   /** update an existing secret */
   updateSecret(name: string, options: UpdateSecretOptions): void;
   /** replace an existing secret with an empty string */

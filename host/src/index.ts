@@ -89,7 +89,6 @@ export {
   type CreateHttpHooksOptions,
   type CreateHttpHooksResult,
   type MakePlaceholderFuncOptions,
-  type AddSecretOptions,
   type SecretDefinition,
   type SecretManager,
   type SecretManagerEntry,
