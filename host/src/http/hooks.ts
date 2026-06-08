@@ -113,6 +113,7 @@ export type CreateHttpHooksResult = {
 
 type SecretEntry = {
   name: string;
+  identifier: string;
   placeholder: string;
   value: string;
   revokedValues: string[];
@@ -161,11 +162,14 @@ export function createHttpHooks(
   const secretEntries = new Map<string, SecretEntry>();
 
   for (const [name, secret] of Object.entries(options.secrets ?? {})) {
+    const identifier = makeSecretIdentifier(name);
+    assertSecretIdentifierIsSafe(name, identifier, secretEntries.values());
     const placeholder = resolveSecretPlaceholder(
       name,
       secret,
       secretPlaceholderMode,
       secretMarker,
+      identifier,
     );
     assertSecretPlaceholderIsSafe(
       name,
@@ -176,6 +180,7 @@ export function createHttpHooks(
     env[name] = placeholder;
     secretEntries.set(name, {
       name,
+      identifier,
       placeholder,
       value: secret.value,
       revokedValues: [],
@@ -342,12 +347,13 @@ function resolveSecretPlaceholder(
   name: string,
   secret: SecretDefinition,
   mode: SecretPlaceholderMode,
-  marker?: string,
+  marker: string | undefined,
+  identifier: string,
 ): string {
   const placeholder =
     secret.placeholder === undefined
       ? mode === "marker-env"
-        ? `${marker}.${makeSecretIdentifier(name)}`
+        ? `${marker}.${identifier}`
         : makeDefaultSecretPlaceholder()
       : typeof secret.placeholder === "function"
         ? secret.placeholder()
@@ -369,7 +375,25 @@ function makeSecretMarker(): string {
 }
 
 function makeSecretIdentifier(name: string): string {
-  return name.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "_");
+  const identifier = name.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "_");
+  if (!identifier) {
+    throw new Error(`invalid secret identifier for ${name}`);
+  }
+  return identifier;
+}
+
+function assertSecretIdentifierIsSafe(
+  name: string,
+  identifier: string,
+  existingEntries: Iterable<SecretEntry>,
+): void {
+  for (const entry of existingEntries) {
+    if (identifier === entry.identifier) {
+      throw new Error(
+        `secret identifier for ${name} collides with secret identifier for ${entry.name}`,
+      );
+    }
+  }
 }
 
 function assertSecretPlaceholderIsSafe(
