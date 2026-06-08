@@ -58,8 +58,10 @@ function parseTrufflehogJsonLines(stdout: string): TrufflehogFinding[] {
     if (!trimmed) continue;
     try {
       findings.push(JSON.parse(trimmed) as TrufflehogFinding);
-    } catch {
-      // ignore non-json lines
+    } catch (error) {
+      throw new Error(
+        `failed to parse trufflehog json line: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
 
