@@ -124,6 +124,7 @@ await vm.close();
 ```
 
 The guest never sees the real secret values. It only gets placeholders.
+By default those placeholders look like `<random-marker>.<normalized_secret_name>`; legacy mode uses `GONDOLIN_SECRET_<random>`.
 Placeholders are substituted by the host in outbound HTTP headers, including
 `Authorization: Basic …` (the base64 token is decoded and placeholders in
 `username:password` are replaced).
