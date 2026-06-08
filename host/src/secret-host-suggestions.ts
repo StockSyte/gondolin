@@ -8,24 +8,21 @@ const URL_RE = /https?:\/\/[^\s"'`<>]+/gi;
 const DETECTOR_SOURCE_SKIP_FILE_RE = /(?:^|\/)(?:[^/]+_test|[^/]+_integration_test)\.go$/;
 
 type TrufflehogScanResult = {
-  ok: boolean;
   stdout: string;
   stderr: string;
 };
 
 type TrufflehogFinding = {
   DetectorName?: string;
-  DetectorDescription?: string;
-  Verified?: boolean;
   ExtraData?: Record<string, string>;
 };
 
 export type SecretHostSuggestion = {
   /** suggested host name */
   host: string;
-  /** evidence file path relative to the scan root */
+  /** evidence file path relative to the scan root or synthetic `detector:<name>` */
   file: string;
-  /** evidence line number */
+  /** evidence line number or `0` for synthetic detector metadata */
   line: number;
   /** one-line evidence snippet */
   snippet: string;
@@ -108,7 +105,7 @@ async function runTrufflehogSecretDetection(
       child.on("error", reject);
       child.on("close", (code) => {
         if (code === 0 || code === 183) {
-          resolve({ ok: true, stdout, stderr });
+          resolve({ stdout, stderr });
           return;
         }
         reject(
