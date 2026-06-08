@@ -1,9 +1,22 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createHttpHooks, makePlaceholderFunc } from "../src/http/hooks.ts";
+import {
+  createHttpHooks,
+  makePlaceholderFunc,
+  type SecretManager,
+} from "../src/http/hooks.ts";
 import { HttpRequestBlockedError } from "../src/http/utils.ts";
 import { Request as UndiciRequest, Response as UndiciResponse } from "undici";
+
+function envFromSecretManager(secretManager: SecretManager): Record<string, string> {
+  return Object.fromEntries(
+    secretManager
+      .listSecrets()
+      .filter((entry) => !entry.deleted)
+      .map((entry) => [entry.name, entry.placeholder]),
+  );
+}
 
 function makeRequest(init: {
   method: string;
@@ -663,7 +676,7 @@ test("http hooks add secrets after creation", async () => {
     value: "secret-value",
   });
 
-  const env = secretManager.getEnv();
+  const env = envFromSecretManager(secretManager);
   assert.equal(typeof env.API_KEY, "string");
   assert.match(env.API_KEY, /^GONDOLIN_SECRET_/);
 
@@ -688,14 +701,14 @@ test("http hooks can re-add a deleted secret", async () => {
     hosts: ["example.com"],
     value: "old-secret",
   });
-  const firstEnv = secretManager.getEnv();
+  const firstEnv = envFromSecretManager(secretManager);
   secretManager.deleteSecret("API_KEY");
   secretManager.addSecret("API_KEY", {
     hosts: ["example.org"],
     value: "new-secret",
   });
 
-  const secondEnv = secretManager.getEnv();
+  const secondEnv = envFromSecretManager(secretManager);
   assert.equal(secondEnv.API_KEY, firstEnv.API_KEY);
 
   await assert.rejects(

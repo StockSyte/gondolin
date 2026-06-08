@@ -168,13 +168,21 @@ function runtimeSecretNames(secretManager?: Pick<SecretManager, "listSecrets">):
   return new Set((secretManager?.listSecrets() ?? []).map((entry) => entry.name));
 }
 
+function runtimeSecretEnv(secretManager?: Pick<SecretManager, "listSecrets">): Record<string, string> {
+  return Object.fromEntries(
+    (secretManager?.listSecrets() ?? [])
+      .filter((entry) => !entry.deleted)
+      .map((entry) => [entry.name, entry.placeholder]),
+  );
+}
+
 function mergeExecEnvWithRuntimeSecrets(
   baseEnv: EnvInput | undefined,
-  secretManager: Pick<SecretManager, "listSecrets" | "getEnv"> | undefined,
+  secretManager: Pick<SecretManager, "listSecrets"> | undefined,
   extraEnv?: EnvInput,
 ): string[] | undefined {
   const filteredBase = filterEnvInputByKeys(baseEnv, runtimeSecretNames(secretManager));
-  return mergeEnvInputs(filteredBase, mergeEnvInputs(secretManager?.getEnv(), extraEnv));
+  return mergeEnvInputs(filteredBase, mergeEnvInputs(runtimeSecretEnv(secretManager), extraEnv));
 }
 
 type ExecInput = string | string[];
@@ -623,7 +631,6 @@ export class VM {
   private createRuntimeSecretManager(secretManager: SecretManager): SecretManager {
     return {
       listSecrets: () => secretManager.listSecrets(),
-      getEnv: () => secretManager.getEnv(),
       addSecret: (name, secret) => {
         secretManager.addSecret(name, secret);
         this.refreshRuntimeSecretsMount();
@@ -646,7 +653,7 @@ export class VM {
       "w",
     );
     try {
-      handle.writeFileSync(serializeSecretsEnvFile(this.secretManager.getEnv()));
+      handle.writeFileSync(serializeSecretsEnvFile(runtimeSecretEnv(this.secretManager)));
     } finally {
       handle.closeSync();
     }

@@ -92,8 +92,6 @@ export type SecretManagerEntry = {
 export type SecretManager = {
   /** list configured secrets */
   listSecrets(): SecretManagerEntry[];
-  /** guest-visible placeholder env vars for non-deleted secrets */
-  getEnv(): Record<string, string>;
   /** add a new secret */
   addSecret(name: string, secret: AddSecretOptions): void;
   /** update an existing secret */
@@ -201,13 +199,6 @@ export function createHttpHooks(
         hosts: [...entry.hosts],
         deleted: entry.deleted,
       }));
-    },
-    getEnv() {
-      return Object.fromEntries(
-        getSecretEntries()
-          .filter((entry) => !entry.deleted)
-          .map((entry) => [entry.name, entry.placeholder]),
-      );
     },
     addSecret(name, secret) {
       const existing = secretEntries.get(name);
