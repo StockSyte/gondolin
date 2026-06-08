@@ -236,29 +236,30 @@ export async function suggestHostsForSecret(
 
   const findings = await runTrufflehogSecretDetection(options.secretValue);
   const detectorSuggestions: SecretHostSuggestion[] = [];
+  const detectorNames = new Set<string>();
+  const sourceRoot = findings.some((finding) => finding.DetectorName)
+    ? await ensureTrufflehogSourceDir()
+    : null;
 
-  if (findings.length > 0) {
-    const sourceRoot = await ensureTrufflehogSourceDir();
-    for (const finding of findings) {
-      if (!finding.DetectorName) continue;
+  for (const finding of findings) {
+    if (finding.DetectorName && sourceRoot && !detectorNames.has(finding.DetectorName)) {
+      detectorNames.add(finding.DetectorName);
       detectorSuggestions.push(
-        ...collectSuggestionsFromDetectorSource(
-          sourceRoot,
-          finding.DetectorName,
-        ),
+        ...collectSuggestionsFromDetectorSource(sourceRoot, finding.DetectorName),
       );
-      for (const value of Object.values(finding.ExtraData ?? {})) {
-        for (const host of extractUrlHosts(value)) {
-          const normalized = normalizeSuggestedHost(host);
-          if (!normalized) continue;
-          detectorSuggestions.push({
-            host: normalized,
-            file: `detector:${finding.DetectorName}`,
-            line: 0,
-            snippet: value.slice(0, 160),
-            count: 1,
-          });
-        }
+    }
+    if (!finding.DetectorName) continue;
+    for (const value of Object.values(finding.ExtraData ?? {})) {
+      for (const host of extractUrlHosts(value)) {
+        const normalized = normalizeSuggestedHost(host);
+        if (!normalized) continue;
+        detectorSuggestions.push({
+          host: normalized,
+          file: `detector:${finding.DetectorName}`,
+          line: 0,
+          snippet: value.slice(0, 160),
+          count: 1,
+        });
       }
     }
   }
