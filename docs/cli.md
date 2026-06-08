@@ -90,7 +90,7 @@ without exposing them inside the VM (for HTTP/TLS-mediated flows).
 
 - `--host-secret NAME[=VALUE]`
     - Make a secret available inside the VM as an environment variable named `NAME`
-    - Gondolin resolves a managed `trufflehog` helper on first use, then scans the current repo for suggested hostnames and asks you to confirm them
+    - Gondolin resolves a managed `trufflehog` helper on first use, then scans for suggested hostnames and asks you to confirm them
     - If no suggestions are found, the command fails and asks you to re-run with explicit hosts
     - If `=VALUE` is omitted, the value is read from the host environment variable `$NAME`
 
@@ -515,20 +515,7 @@ Image selectors accepted by `--image` and `sandbox.imagePath` strings:
     - Override checkpoint directory used by `gondolin snapshot` / `gondolin bash --resume`
     - Default: `~/.cache/gondolin/checkpoints`
 
-- `GONDOLIN_TRUFFLEHOG_PATH`
-    - Override the `trufflehog` helper binary path used for host suggestion discovery
-
-- `GONDOLIN_TRUFFLEHOG_DIR`
-    - Override the directory containing a managed `trufflehog` binary
-
-- `GONDOLIN_TRUFFLEHOG_REGISTRY_URL`
-    - Override builtin trufflehog registry JSON URL
-
-- `GONDOLIN_TRUFFLEHOG_STORE`
-    - Override local store for the managed `trufflehog` helper
-    - Default: `~/.cache/gondolin/tools/trufflehog`
-
-You can inspect the helper with:
+You can inspect the managed `trufflehog` helper with:
 
 ```bash
 gondolin tools trufflehog

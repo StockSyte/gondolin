@@ -2820,18 +2820,7 @@ async function runTools(argv: string[]) {
       }
 
       const status = await getTrufflehogStatus();
-      const resolvedPath =
-        status.configuredPath ??
-        (status.configuredDir
-          ? path.join(status.configuredDir, "trufflehog")
-          : status.managedPath);
-      const source = status.configuredPath
-        ? "configured-path"
-        : status.configuredDir
-          ? "configured-dir"
-          : status.installed
-            ? "managed"
-            : "downloadable";
+      const source = status.installed ? "managed" : "downloadable";
 
       if (asJson) {
         console.log(
@@ -2842,10 +2831,8 @@ async function runTools(argv: string[]) {
               platform: status.platform,
               source,
               installed: status.installed,
-              configuredPath: status.configuredPath,
-              configuredDir: status.configuredDir,
               managedPath: status.managedPath,
-              resolvedPath,
+              resolvedPath: status.managedPath,
               downloadUrl: status.downloadUrl,
               ref: status.ref,
               buildId: status.buildId,
@@ -2864,14 +2851,9 @@ async function runTools(argv: string[]) {
       console.log(`platform: ${status.platform}`);
       console.log(`source: ${source}`);
       console.log(`installed: ${status.installed ? "yes" : "no"}`);
-      console.log(`resolved path: ${resolvedPath}`);
-      if (status.configuredDir) {
-        console.log(`configured dir: ${status.configuredDir}`);
-      }
-      if (!status.configuredPath && !status.configuredDir) {
-        console.log(`managed path: ${status.managedPath}`);
-        console.log(`download url: ${status.downloadUrl}`);
-      }
+      console.log(`resolved path: ${status.managedPath}`);
+      console.log(`managed path: ${status.managedPath}`);
+      console.log(`download url: ${status.downloadUrl}`);
       return;
     }
     default:

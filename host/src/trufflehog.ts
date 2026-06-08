@@ -50,8 +50,6 @@ type RegistryCache = {
 };
 
 export interface EnsureTrufflehogOptions {
-  /** explicit binary path override */
-  binaryPath?: string;
   /** explicit cache/store directory */
   storeDir?: string;
   /** optional logger */
@@ -65,10 +63,6 @@ export interface TrufflehogStatus {
   version: string;
   /** resolved platform key */
   platform: SupportedPlatform;
-  /** configured binary override path */
-  configuredPath: string | null;
-  /** configured directory override */
-  configuredDir: string | null;
   /** managed install path */
   managedPath: string;
   /** whether a managed binary already exists */
@@ -84,17 +78,12 @@ function cacheBaseDir(): string {
 }
 
 export function getTrufflehogStoreDirectory(): string {
-  return (
-    process.env.GONDOLIN_TRUFFLEHOG_STORE ??
-    path.join(cacheBaseDir(), "gondolin", "tools", "trufflehog")
-  );
+  return path.join(cacheBaseDir(), "gondolin", "tools", "trufflehog");
 }
 
 function trufflehogRegistryUrl(value?: string): string {
-  const envValue = process.env.GONDOLIN_TRUFFLEHOG_REGISTRY_URL?.trim();
   const explicit = value?.trim();
   if (explicit) return explicit;
-  if (envValue) return envValue;
   return DEFAULT_TRUFFLEHOG_REGISTRY_URL;
 }
 
@@ -137,29 +126,6 @@ function resolveSupportedPlatform(
   throw new Error(
     `trufflehog helper is not available for this platform: ${platform}/${arch}`,
   );
-}
-
-function resolveConfiguredBinaryPath(explicit?: string): string | null {
-  const candidate =
-    explicit?.trim() || process.env.GONDOLIN_TRUFFLEHOG_PATH?.trim();
-  if (!candidate) return null;
-  const resolved = path.resolve(candidate);
-  if (!fs.existsSync(resolved)) {
-    throw new Error(`configured trufflehog binary does not exist: ${candidate}`);
-  }
-  return resolved;
-}
-
-function resolveConfiguredDirectory(): string | null {
-  const candidate = process.env.GONDOLIN_TRUFFLEHOG_DIR?.trim();
-  if (!candidate) return null;
-  const resolved = path.resolve(candidate);
-  if (!fs.existsSync(path.join(resolved, "trufflehog"))) {
-    throw new Error(
-      `configured trufflehog directory does not contain a trufflehog binary: ${candidate}`,
-    );
-  }
-  return resolved;
 }
 
 function parseRef(reference: string): string {
@@ -565,12 +531,6 @@ export async function ensureTrufflehogSourceDir(
 export async function ensureTrufflehogBinary(
   options: EnsureTrufflehogOptions = {},
 ): Promise<string> {
-  const configuredPath = resolveConfiguredBinaryPath(options.binaryPath);
-  if (configuredPath) return configuredPath;
-
-  const configuredDir = resolveConfiguredDirectory();
-  if (configuredDir) return path.join(configuredDir, "trufflehog");
-
   const storeDir = options.storeDir ?? getTrufflehogStoreDirectory();
   const platform = resolveSupportedPlatform();
   const { buildId, build } = await resolveManagedBuild(storeDir, platform);
@@ -580,8 +540,6 @@ export async function ensureTrufflehogBinary(
 export async function getTrufflehogStatus(
   options: Omit<EnsureTrufflehogOptions, "log"> = {},
 ): Promise<TrufflehogStatus> {
-  const configuredPath = resolveConfiguredBinaryPath(options.binaryPath);
-  const configuredDir = resolveConfiguredDirectory();
   const storeDir = options.storeDir ?? getTrufflehogStoreDirectory();
   const platform = resolveSupportedPlatform();
   const { ref, buildId, build } = await resolveManagedBuild(storeDir, platform);
@@ -590,8 +548,6 @@ export async function getTrufflehogStatus(
     ref,
     version: build.version,
     platform,
-    configuredPath,
-    configuredDir,
     managedPath,
     installed: fs.existsSync(managedPath),
     downloadUrl: build.url,
