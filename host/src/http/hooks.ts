@@ -46,6 +46,8 @@ export const BASE62_ALPHABET =
 export const BASE64URL_ALPHABET =
   "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 
+export type SecretPlaceholderMode = "marker-env" | "legacy";
+
 export type CreateHttpHooksOptions = {
   /** allowed host patterns (omitted = allow all, explicit empty = deny all) */
   allowedHosts?: string[];
@@ -55,6 +57,8 @@ export type CreateHttpHooksOptions = {
   secrets?: Record<string, SecretDefinition>;
   /** placeholder replacement in URL query string (default: false) */
   replaceSecretsInQuery?: boolean;
+  /** secret placeholder strategy (default: `marker-env`) */
+  secretPlaceholderMode?: SecretPlaceholderMode;
   /** whether to block internal ip ranges (default: true) */
   blockInternalRanges?: boolean;
   /** custom request policy callback */
@@ -144,6 +148,11 @@ export function createHttpHooks(
   options: CreateHttpHooksOptions = {},
 ): CreateHttpHooksResult {
   const env: Record<string, string> = {};
+  const secretPlaceholderMode = options.secretPlaceholderMode ?? "marker-env";
+  const secretMarker =
+    secretPlaceholderMode === "marker-env"
+      ? makeSecretMarker()
+      : undefined;
   const blockInternalRanges = options.blockInternalRanges ?? true;
   const configuredAllowedHosts =
     options.allowedHosts === undefined
@@ -152,7 +161,12 @@ export function createHttpHooks(
   const secretEntries = new Map<string, SecretEntry>();
 
   for (const [name, secret] of Object.entries(options.secrets ?? {})) {
-    const placeholder = resolveSecretPlaceholder(name, secret);
+    const placeholder = resolveSecretPlaceholder(
+      name,
+      secret,
+      secretPlaceholderMode,
+      secretMarker,
+    );
     assertSecretPlaceholderIsSafe(
       name,
       placeholder,
@@ -327,10 +341,14 @@ export function createHttpHooks(
 function resolveSecretPlaceholder(
   name: string,
   secret: SecretDefinition,
+  mode: SecretPlaceholderMode,
+  marker?: string,
 ): string {
   const placeholder =
     secret.placeholder === undefined
-      ? makeDefaultSecretPlaceholder()
+      ? mode === "marker-env"
+        ? `${marker}.${makeSecretIdentifier(name)}`
+        : makeDefaultSecretPlaceholder()
       : typeof secret.placeholder === "function"
         ? secret.placeholder()
         : secret.placeholder;
@@ -344,6 +362,14 @@ function resolveSecretPlaceholder(
 
 function makeDefaultSecretPlaceholder(): string {
   return `GONDOLIN_SECRET_${crypto.randomBytes(24).toString("hex")}`;
+}
+
+function makeSecretMarker(): string {
+  return crypto.randomBytes(24).toString("hex");
+}
+
+function makeSecretIdentifier(name: string): string {
+  return name.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "_");
 }
 
 function assertSecretPlaceholderIsSafe(

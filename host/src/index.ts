@@ -92,6 +92,7 @@ export {
   type SecretDefinition,
   type SecretManager,
   type SecretManagerEntry,
+  type SecretPlaceholderMode,
   type UpdateSecretOptions,
 } from "./http/hooks.ts";
 
