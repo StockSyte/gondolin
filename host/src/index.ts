@@ -113,6 +113,11 @@ export type {
   SshExecPolicy,
 } from "./qemu/ssh.ts";
 export { HttpRequestBlockedError } from "./http/utils.ts";
+export {
+  suggestHostsForSecret,
+  type SecretHostSuggestion,
+  type SuggestSecretHostsOptions,
+} from "./secret-host-suggestions.ts";
 
 // SSH helpers
 export { getInfoFromSshExecRequest, type GitSshExecInfo } from "./ssh/exec.ts";
