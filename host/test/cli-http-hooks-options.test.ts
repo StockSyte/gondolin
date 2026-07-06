@@ -49,6 +49,27 @@ test("buildVmOptions keeps implicit open egress for host secrets without --allow
   );
 });
 
+test("parseHostSecret supports host discovery mode from env", () => {
+  process.env.API_KEY = "secret-value";
+  try {
+    assert.deepEqual(__test.parseHostSecret("API_KEY"), {
+      name: "API_KEY",
+      value: "secret-value",
+      hosts: [],
+    });
+  } finally {
+    delete process.env.API_KEY;
+  }
+});
+
+test("parseHostSecret supports host discovery mode with inline value", () => {
+  assert.deepEqual(__test.parseHostSecret("API_KEY=secret-value"), {
+    name: "API_KEY",
+    value: "secret-value",
+    hosts: [],
+  });
+});
+
 test("buildVmOptions still honors explicit global allowlists", async () => {
   const vmOptions = __test.buildVmOptions(
     makeCommonOptions({

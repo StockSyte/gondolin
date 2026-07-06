@@ -5,6 +5,7 @@ import { createHash } from "crypto";
 import { execFileSync } from "child_process";
 
 import { buildAlpineImages } from "./alpine.ts";
+import { gondolinCacheDir } from "../cache.ts";
 import type { BuildConfig, Architecture } from "./config.ts";
 import { parseApkIndex } from "../alpine/packages.ts";
 import { decompressTarGz, extractTarGz, parseTar } from "../alpine/tar.ts";
@@ -91,7 +92,7 @@ export async function buildNative(
     warnOnKernelPackageMismatch(alpineConfig.rootfsPackages, kernelPackage);
   }
 
-  const cacheDir = path.join(os.homedir(), ".cache", "gondolin", "build");
+  const cacheDir = gondolinCacheDir("build");
 
   let rootfsInit: string | undefined;
   let initramfsInit: string | undefined;

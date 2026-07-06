@@ -88,6 +88,12 @@ without exposing them inside the VM (for HTTP/TLS-mediated flows).
     - May be repeated
     - `HOST_PATTERN` supports `*` wildcards (for example `*.github.com`)
 
+- `--host-secret NAME[=VALUE]`
+    - Make a secret available inside the VM as an environment variable named `NAME`
+    - Gondolin resolves a managed `trufflehog` helper on first use, then scans for suggested hostnames and asks you to confirm them
+    - If no suggestions are found, the command fails and asks you to re-run with explicit hosts
+    - If `=VALUE` is omitted, the value is read from the host environment variable `$NAME`
+
 - `--host-secret NAME@HOST[,HOST...][=VALUE]`
     - Make a secret available inside the VM as an environment variable named `NAME`
     - The VM only sees a random placeholder value; the host replaces that
@@ -508,6 +514,14 @@ Image selectors accepted by `--image` and `sandbox.imagePath` strings:
 - `GONDOLIN_CHECKPOINT_DIR`
     - Override checkpoint directory used by `gondolin snapshot` / `gondolin bash --resume`
     - Default: `~/.cache/gondolin/checkpoints`
+
+You can inspect the managed `trufflehog` helper with:
+
+```bash
+gondolin tools trufflehog
+gondolin tools trufflehog --install
+gondolin tools trufflehog --json
+```
 
 - `GONDOLIN_SESSIONS_DIR`
     - Override session registry directory used by `gondolin list` / `gondolin attach`
