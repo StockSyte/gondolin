@@ -1042,7 +1042,13 @@ function collectMarkerSecretReferenceRanges(
     return [];
   }
 
-  const byIdentifier = new Map(entries.map((entry) => [entry.identifier, entry]));
+  const byIdentifier = new Map(
+    entries
+      .filter(
+        (entry) => entry.placeholder === `${context.marker}.${entry.identifier}`,
+      )
+      .map((entry) => [entry.identifier, entry]),
+  );
   const replacements: Array<{ start: number; end: number; entry: SecretEntry }> = [];
   const prefix = `${context.marker}.`;
 
