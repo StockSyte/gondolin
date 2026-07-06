@@ -361,11 +361,17 @@ function resolveSecretPlaceholder(
   marker: string | undefined,
   identifier: string,
 ): string {
+  if (mode === "shared" && !marker) {
+    throw new Error("shared secret placeholder mode requires a marker");
+  }
+
+  const generatedPlaceholder =
+    mode === "shared"
+      ? `${marker}.${identifier}`
+      : makeDefaultSecretPlaceholder();
   const placeholder =
     secret.placeholder === undefined
-      ? mode === "shared"
-        ? `${marker}.${identifier}`
-        : makeDefaultSecretPlaceholder()
+      ? generatedPlaceholder
       : typeof secret.placeholder === "function"
         ? secret.placeholder()
         : secret.placeholder;
