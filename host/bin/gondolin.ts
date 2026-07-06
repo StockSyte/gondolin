@@ -9,6 +9,7 @@ import { PassThrough } from "stream";
 import { fileURLToPath } from "url";
 
 import { VmCheckpoint } from "../src/checkpoint.ts";
+import { gondolinCacheDir } from "../src/cache.ts";
 import { parseDiskSizeToBytes } from "../src/qemu/img.ts";
 import { VM } from "../src/vm/core.ts";
 import type { VirtualProvider } from "../src/vfs/node/index.ts";
@@ -79,11 +80,9 @@ function getDefaultInteractiveShellCommand(): string[] {
 }
 
 function checkpointBaseDir(): string {
-  const cacheBase =
-    process.env.XDG_CACHE_HOME ?? path.join(os.homedir(), ".cache");
   return (
     process.env.GONDOLIN_CHECKPOINT_DIR ??
-    path.join(cacheBase, "gondolin", "checkpoints")
+    gondolinCacheDir("checkpoints")
   );
 }
 

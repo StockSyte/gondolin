@@ -1,11 +1,8 @@
 import { createHash, randomUUID } from "crypto";
 import fs from "fs";
-import os from "os";
 import path from "path";
 
-export function cacheBaseDir(): string {
-  return process.env.XDG_CACHE_HOME ?? path.join(os.homedir(), ".cache");
-}
+export { cacheBaseDir } from "../cache.ts";
 
 export function normalizeSha256(value: unknown, label: string): string {
   if (typeof value !== "string" || !/^[0-9a-f]{64}$/i.test(value)) {

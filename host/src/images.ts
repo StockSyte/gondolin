@@ -5,6 +5,7 @@ import os from "os";
 import path from "path";
 
 import { loadAssetManifest, loadGuestAssets } from "./assets.ts";
+import { gondolinCacheDir } from "./cache.ts";
 import type { Architecture } from "./build/config.ts";
 import { getHostNodeArchCached } from "./host/arch.ts";
 
@@ -126,15 +127,8 @@ type RegistryCache = {
   registry: BuiltinImageRegistry;
 };
 
-function cacheBaseDir(): string {
-  return process.env.XDG_CACHE_HOME ?? path.join(os.homedir(), ".cache");
-}
-
 export function getImageStoreDirectory(): string {
-  return (
-    process.env.GONDOLIN_IMAGE_STORE ??
-    path.join(cacheBaseDir(), "gondolin", "images")
-  );
+  return process.env.GONDOLIN_IMAGE_STORE ?? gondolinCacheDir("images");
 }
 
 function imageObjectRootDir(): string {

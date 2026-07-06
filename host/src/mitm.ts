@@ -1,10 +1,10 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import fsp from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 
 import forge from "node-forge";
+import { gondolinCacheDir } from "./cache.ts";
 
 export type MitmCa = {
   /** ca private key */
@@ -18,9 +18,7 @@ export type MitmCa = {
 };
 
 export function getDefaultMitmCertDir() {
-  const cacheBase =
-    process.env.XDG_CACHE_HOME ?? path.join(os.homedir(), ".cache");
-  return path.join(cacheBase, "gondolin", "ssl");
+  return gondolinCacheDir("ssl");
 }
 
 export function resolveMitmCertDir(mitmCertDir?: string) {
