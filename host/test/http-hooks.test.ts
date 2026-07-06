@@ -468,9 +468,9 @@ test("http hooks replace secret placeholders", async () => {
   assert.equal(request.headers.get("authorization"), "Bearer secret-value");
 });
 
-test("http hooks support legacy secret placeholder mode", async () => {
+test("http hooks support unique secret placeholder mode", async () => {
   const { httpHooks, env } = createHttpHooks({
-    secretPlaceholderMode: "legacy",
+    secretPlaceholderMode: "unique",
     secrets: {
       API_KEY: {
         hosts: ["example.com"],

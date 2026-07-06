@@ -46,7 +46,7 @@ export const BASE62_ALPHABET =
 export const BASE64URL_ALPHABET =
   "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 
-export type SecretPlaceholderMode = "marker-env" | "legacy";
+export type SecretPlaceholderMode = "shared" | "unique";
 
 export type CreateHttpHooksOptions = {
   /** allowed host patterns (omitted = allow all, explicit empty = deny all) */
@@ -57,7 +57,7 @@ export type CreateHttpHooksOptions = {
   secrets?: Record<string, SecretDefinition>;
   /** placeholder replacement in URL query string (default: false) */
   replaceSecretsInQuery?: boolean;
-  /** secret placeholder strategy (default: `marker-env`) */
+  /** secret placeholder strategy (default: `shared`) */
   secretPlaceholderMode?: SecretPlaceholderMode;
   /** whether to block internal ip ranges (default: true) */
   blockInternalRanges?: boolean;
@@ -154,11 +154,9 @@ export function createHttpHooks(
   options: CreateHttpHooksOptions = {},
 ): CreateHttpHooksResult {
   const env: Record<string, string> = {};
-  const secretPlaceholderMode = options.secretPlaceholderMode ?? "marker-env";
+  const secretPlaceholderMode = options.secretPlaceholderMode ?? "shared";
   const secretMarker =
-    secretPlaceholderMode === "marker-env"
-      ? makeSecretMarker()
-      : undefined;
+    secretPlaceholderMode === "shared" ? makeSecretMarker() : undefined;
   const blockInternalRanges = options.blockInternalRanges ?? true;
   const configuredAllowedHosts =
     options.allowedHosts === undefined
@@ -176,7 +174,7 @@ export function createHttpHooks(
       secretMarker,
       identifier,
     );
-    if (!(secretPlaceholderMode === "marker-env" && secret.placeholder === undefined)) {
+    if (!(secretPlaceholderMode === "shared" && secret.placeholder === undefined)) {
       assertSecretPlaceholderIsSafe(
         name,
         placeholder,
@@ -365,7 +363,7 @@ function resolveSecretPlaceholder(
 ): string {
   const placeholder =
     secret.placeholder === undefined
-      ? mode === "marker-env"
+      ? mode === "shared"
         ? `${marker}.${identifier}`
         : makeDefaultSecretPlaceholder()
       : typeof secret.placeholder === "function"
@@ -990,7 +988,7 @@ function collectLegacySecretReferenceRanges(
   context: SecretReplacementContext,
 ): Array<{ start: number; end: number; entry: SecretEntry }> {
   const markerPlaceholders =
-    context.mode === "marker-env" && context.marker
+    context.mode === "shared" && context.marker
       ? new Set(entries.map((entry) => `${context.marker}.${entry.identifier}`))
       : null;
   const replacements: Array<{ start: number; end: number; entry: SecretEntry }> = [];
@@ -1040,7 +1038,7 @@ function collectMarkerSecretReferenceRanges(
   entries: SecretEntry[],
   context: SecretReplacementContext,
 ): Array<{ start: number; end: number; entry: SecretEntry }> {
-  if (context.mode !== "marker-env" || !context.marker) {
+  if (context.mode !== "shared" || !context.marker) {
     return [];
   }
 

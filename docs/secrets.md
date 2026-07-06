@@ -20,7 +20,9 @@ Instead, with `createHttpHooks({ secrets: ... })`:
 3. The guest only sees placeholders in env vars
 4. On outbound HTTP, the host replaces placeholders with real values (only for allowed hosts)
 
-By default, Gondolin uses `secretPlaceholderMode: "marker-env"`. Legacy random per-secret placeholders (`GONDOLIN_SECRET_<random>`) are still available via `secretPlaceholderMode: "legacy"`.
+By default, Gondolin uses `secretPlaceholderMode: "shared"`: generated secrets share one random marker and get placeholders like `<random-marker>.<normalized_secret_name>`.
+
+`secretPlaceholderMode: "unique"` instead gives each generated secret its own fully random placeholder like `GONDOLIN_SECRET_<random>`.
 
 If a placeholder is used for a disallowed host, the request is blocked.
 
@@ -47,8 +49,7 @@ the guest will not have placeholder env vars to reference.
 
 ## Custom Placeholders
 
-The default marker-based mode is a good fit for most secrets. If you need the guest-visible value to follow a specific token shape, you can still provide a custom placeholder explicitly.
-
+The default shared-marker mode is a good fit for most secrets. If you need the guest-visible value to follow a specific token shape, you can still provide a custom placeholder explicitly.
 
 A secret can provide a fixed placeholder string or a function that returns one.
 The function is called once when `createHttpHooks()` is called.
@@ -87,7 +88,7 @@ const { httpHooks, env } = createHttpHooks({
 Only the exact generated placeholder value is substituted; Gondolin does not
 replace arbitrary strings that merely look like matching tokens.
 
-If you need the pre-marker behavior for all unnamed secrets, set `secretPlaceholderMode: "legacy"`.
+If you want a fully random placeholder per unnamed secret instead of the shared-marker format, set `secretPlaceholderMode: "unique"`.
 
 ## What Is Substituted
 
