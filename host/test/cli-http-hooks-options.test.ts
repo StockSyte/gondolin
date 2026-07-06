@@ -36,7 +36,7 @@ test("buildVmOptions keeps implicit open egress for host secrets without --allow
   assert.deepEqual(vmOptions.env, {
     API_KEY: vmOptions.env.API_KEY,
   });
-  assert.match(vmOptions.env.API_KEY, /^GONDOLIN_SECRET_/);
+  assert.match(vmOptions.env.API_KEY, /^[0-9a-f]{48}\.api_key$/);
   assert.equal(
     await vmOptions.httpHooks.isIpAllowed({
       hostname: "unrelated.example",
