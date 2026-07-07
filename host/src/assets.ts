@@ -1,6 +1,5 @@
 import { createHash } from "crypto";
 import fs from "fs";
-import os from "os";
 import path from "path";
 import type {
   BuildConfig,
@@ -8,6 +7,7 @@ import type {
   OciPullPolicy,
   RootfsMode,
 } from "./build/config.ts";
+import { gondolinCacheDir } from "./cache.ts";
 
 let cachedAssetVersion: string | null = null;
 
@@ -43,15 +43,8 @@ function resolveAssetVersion(): string {
   return cachedAssetVersion;
 }
 
-function cacheBaseDir(): string {
-  return process.env.XDG_CACHE_HOME ?? path.join(os.homedir(), ".cache");
-}
-
 function getImageStoreDirectory(): string {
-  return (
-    process.env.GONDOLIN_IMAGE_STORE ??
-    path.join(cacheBaseDir(), "gondolin", "images")
-  );
+  return process.env.GONDOLIN_IMAGE_STORE ?? gondolinCacheDir("images");
 }
 
 function defaultGuestImageSelector(): string {

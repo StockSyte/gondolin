@@ -46,6 +46,8 @@ export const BASE62_ALPHABET =
 export const BASE64URL_ALPHABET =
   "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 
+export type SecretPlaceholderMode = "shared" | "unique";
+
 export type CreateHttpHooksOptions = {
   /** allowed host patterns (omitted = allow all, explicit empty = deny all) */
   allowedHosts?: string[];
@@ -55,6 +57,8 @@ export type CreateHttpHooksOptions = {
   secrets?: Record<string, SecretDefinition>;
   /** placeholder replacement in URL query string (default: false) */
   replaceSecretsInQuery?: boolean;
+  /** secret placeholder strategy (default: `shared`) */
+  secretPlaceholderMode?: SecretPlaceholderMode;
   /** whether to block internal ip ranges (default: true) */
   blockInternalRanges?: boolean;
   /** custom request policy callback */
@@ -109,11 +113,17 @@ export type CreateHttpHooksResult = {
 
 type SecretEntry = {
   name: string;
+  identifier: string;
   placeholder: string;
   value: string;
   revokedValues: string[];
   hosts: string[];
   deleted: boolean;
+};
+
+type SecretReplacementContext = {
+  mode: SecretPlaceholderMode;
+  marker?: string;
 };
 
 export function makePlaceholderFunc(
@@ -144,6 +154,9 @@ export function createHttpHooks(
   options: CreateHttpHooksOptions = {},
 ): CreateHttpHooksResult {
   const env: Record<string, string> = {};
+  const secretPlaceholderMode = options.secretPlaceholderMode ?? "shared";
+  const secretMarker =
+    secretPlaceholderMode === "shared" ? makeSecretMarker() : undefined;
   const blockInternalRanges = options.blockInternalRanges ?? true;
   const configuredAllowedHosts =
     options.allowedHosts === undefined
@@ -152,16 +165,27 @@ export function createHttpHooks(
   const secretEntries = new Map<string, SecretEntry>();
 
   for (const [name, secret] of Object.entries(options.secrets ?? {})) {
-    const placeholder = resolveSecretPlaceholder(name, secret);
-    assertSecretPlaceholderIsSafe(
+    const identifier = makeSecretIdentifier(name);
+    assertSecretIdentifierIsSafe(name, identifier, secretEntries.values());
+    const placeholder = resolveSecretPlaceholder(
       name,
-      placeholder,
-      secret.value,
-      secretEntries.values(),
+      secret,
+      secretPlaceholderMode,
+      secretMarker,
+      identifier,
     );
+    if (!(secretPlaceholderMode === "shared" && secret.placeholder === undefined)) {
+      assertSecretPlaceholderIsSafe(
+        name,
+        placeholder,
+        secret.value,
+        secretEntries.values(),
+      );
+    }
     env[name] = placeholder;
     secretEntries.set(name, {
       name,
+      identifier,
       placeholder,
       value: secret.value,
       revokedValues: [],
@@ -228,6 +252,10 @@ export function createHttpHooks(
     assertRequestShape(request);
     const hostname = getHostname(request.url);
     const entries = getSecretEntries();
+    const replacementContext: SecretReplacementContext = {
+      mode: secretPlaceholderMode,
+      marker: secretMarker,
+    };
 
     // Defense-in-depth: if the request already contains real secret values (eg: because
     // it was constructed from a redirected hop), make sure we still enforce per-secret
@@ -243,12 +271,14 @@ export function createHttpHooks(
       request.headers,
       hostname,
       entries,
+      replacementContext,
     );
     const url = replaceSecretPlaceholdersInUrlParameters(
       request.url,
       hostname,
       entries,
       options.replaceSecretsInQuery ?? false,
+      replacementContext,
     );
 
     if (url === request.url) {
@@ -327,10 +357,21 @@ export function createHttpHooks(
 function resolveSecretPlaceholder(
   name: string,
   secret: SecretDefinition,
+  mode: SecretPlaceholderMode,
+  marker: string | undefined,
+  identifier: string,
 ): string {
+  if (mode === "shared" && !marker) {
+    throw new Error("shared secret placeholder mode requires a marker");
+  }
+
+  const generatedPlaceholder =
+    mode === "shared"
+      ? `${marker}.${identifier}`
+      : makeDefaultSecretPlaceholder();
   const placeholder =
     secret.placeholder === undefined
-      ? makeDefaultSecretPlaceholder()
+      ? generatedPlaceholder
       : typeof secret.placeholder === "function"
         ? secret.placeholder()
         : secret.placeholder;
@@ -344,6 +385,32 @@ function resolveSecretPlaceholder(
 
 function makeDefaultSecretPlaceholder(): string {
   return `GONDOLIN_SECRET_${crypto.randomBytes(24).toString("hex")}`;
+}
+
+function makeSecretMarker(): string {
+  return crypto.randomBytes(24).toString("hex");
+}
+
+function makeSecretIdentifier(name: string): string {
+  const identifier = name.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "_");
+  if (!identifier) {
+    throw new Error(`invalid secret identifier for ${name}`);
+  }
+  return identifier;
+}
+
+function assertSecretIdentifierIsSafe(
+  name: string,
+  identifier: string,
+  existingEntries: Iterable<SecretEntry>,
+): void {
+  for (const entry of existingEntries) {
+    if (identifier === entry.identifier) {
+      throw new Error(
+        `secret identifier for ${name} collides with secret identifier for ${entry.name}`,
+      );
+    }
+  }
 }
 
 function assertSecretPlaceholderIsSafe(
@@ -779,6 +846,7 @@ function replaceSecretPlaceholdersInHeaders(
   incomingHeaders: Headers,
   hostname: string,
   entries: SecretEntry[],
+  context: SecretReplacementContext,
 ): Headers {
   if (entries.length === 0) return incomingHeaders;
 
@@ -788,7 +856,12 @@ function replaceSecretPlaceholdersInHeaders(
     let updated = value;
 
     // Plaintext placeholder replacement (eg: `Authorization: Bearer $TOKEN`).
-    updated = replaceSecretPlaceholdersInString(updated, hostname, entries);
+    updated = replaceSecretPlaceholdersInString(
+      updated,
+      hostname,
+      entries,
+      context,
+    );
 
     // Basic auth uses base64 encoding of `username:password`, so placeholders
     // won't appear in the header value directly.
@@ -797,6 +870,7 @@ function replaceSecretPlaceholdersInHeaders(
       updated,
       hostname,
       entries,
+      context,
     );
 
     if (updated !== value) {
@@ -815,6 +889,7 @@ function replaceSecretPlaceholdersInUrlParameters(
   hostname: string,
   entries: SecretEntry[],
   enabled: boolean,
+  context: SecretReplacementContext,
 ): string {
   if (!enabled || entries.length === 0) return url;
 
@@ -835,11 +910,13 @@ function replaceSecretPlaceholdersInUrlParameters(
       name,
       hostname,
       entries,
+      context,
     );
     const updatedValue = replaceSecretPlaceholdersInString(
       value,
       hostname,
       entries,
+      context,
     );
     if (updatedName !== name || updatedValue !== value) changed = true;
     updatedParams.append(updatedName, updatedValue);
@@ -857,6 +934,7 @@ function replaceBasicAuthSecretPlaceholders(
   headerValue: string,
   hostname: string,
   entries: SecretEntry[],
+  context: SecretReplacementContext,
 ): string {
   // Only touch request headers that are expected to carry credentials.
   if (!/^(authorization|proxy-authorization)$/i.test(headerName)) {
@@ -882,6 +960,7 @@ function replaceBasicAuthSecretPlaceholders(
     decoded,
     hostname,
     entries,
+    context,
   );
   if (updatedDecoded === decoded) return headerValue;
 
@@ -893,23 +972,48 @@ function replaceSecretPlaceholdersInString(
   value: string,
   hostname: string,
   entries: SecretEntry[],
+  context: SecretReplacementContext,
 ): string {
   const secretValueRanges = entries.flatMap((entry) =>
     collectStringMatchRanges(value, entry.value),
   );
-  const replacements: Array<{
-    start: number;
-    end: number;
-    entry: SecretEntry;
-  }> = [];
+  const replacements = [
+    ...collectMarkerSecretReferenceRanges(value, entries, context),
+    ...collectLegacySecretReferenceRanges(value, entries, context),
+  ].filter(
+    (replacement) =>
+      !isRangeCoveredByAllowedValue(replacement, secretValueRanges),
+  );
+
+  return applySecretReplacements(value, hostname, replacements);
+}
+
+function collectLegacySecretReferenceRanges(
+  value: string,
+  entries: SecretEntry[],
+  context: SecretReplacementContext,
+): Array<{ start: number; end: number; entry: SecretEntry }> {
+  const markerPlaceholders =
+    context.mode === "shared" && context.marker
+      ? new Set(entries.map((entry) => `${context.marker}.${entry.identifier}`))
+      : null;
+  const replacements: Array<{ start: number; end: number; entry: SecretEntry }> = [];
 
   for (const entry of entries) {
+    if (markerPlaceholders?.has(entry.placeholder)) continue;
     for (const range of collectStringMatchRanges(value, entry.placeholder)) {
-      if (isRangeCoveredByAllowedValue(range, secretValueRanges)) continue;
       replacements.push({ ...range, entry });
     }
   }
 
+  return replacements;
+}
+
+function applySecretReplacements(
+  value: string,
+  hostname: string,
+  replacements: Array<{ start: number; end: number; entry: SecretEntry }>,
+): string {
   if (replacements.length === 0) return value;
 
   replacements.sort((a, b) => a.start - b.start || b.end - a.end);
@@ -933,6 +1037,51 @@ function replaceSecretPlaceholdersInString(
   }
 
   return updated + value.slice(offset);
+}
+
+function collectMarkerSecretReferenceRanges(
+  value: string,
+  entries: SecretEntry[],
+  context: SecretReplacementContext,
+): Array<{ start: number; end: number; entry: SecretEntry }> {
+  if (context.mode !== "shared" || !context.marker) {
+    return [];
+  }
+
+  const byIdentifier = new Map(
+    entries
+      .filter(
+        (entry) => entry.placeholder === `${context.marker}.${entry.identifier}`,
+      )
+      .map((entry) => [entry.identifier, entry]),
+  );
+  const replacements: Array<{ start: number; end: number; entry: SecretEntry }> = [];
+  const prefix = `${context.marker}.`;
+
+  let searchFrom = 0;
+  while (searchFrom < value.length) {
+    const start = value.indexOf(prefix, searchFrom);
+    if (start === -1) break;
+
+    const identifierStart = start + prefix.length;
+    let identifierEnd = identifierStart;
+
+    while (identifierEnd < value.length) {
+      const ch = value[identifierEnd]!;
+      if (!/[A-Za-z0-9_-]/.test(ch)) break;
+      identifierEnd += 1;
+    }
+
+    const identifier = value.slice(identifierStart, identifierEnd);
+    const entry = byIdentifier.get(identifier);
+    if (identifier && entry) {
+      replacements.push({ start, end: identifierEnd, entry });
+    }
+
+    searchFrom = identifierStart;
+  }
+
+  return replacements;
 }
 
 function assertSecretAllowedForHost(

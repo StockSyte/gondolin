@@ -1,8 +1,8 @@
 import fs from "fs";
 import net from "net";
-import os from "os";
 import path from "path";
 
+import { gondolinCacheDir } from "./cache.ts";
 import type { SandboxConnection } from "./sandbox/client.ts";
 import {
   decodeOutputFrame,
@@ -19,12 +19,8 @@ import {
   type StdinCommandMessage,
 } from "./sandbox/control-protocol.ts";
 
-const CACHE_BASE =
-  process.env.XDG_CACHE_HOME ?? path.join(os.homedir(), ".cache");
-
 const SESSIONS_DIR =
-  process.env.GONDOLIN_SESSIONS_DIR ??
-  path.join(CACHE_BASE, "gondolin", "sessions");
+  process.env.GONDOLIN_SESSIONS_DIR ?? gondolinCacheDir("sessions");
 
 const MAX_REQUEST_ID = 0xffffffff;
 const INTERNAL_ID_FLOOR = 0x80000000;

@@ -1,6 +1,5 @@
 import fs from "fs";
 import path from "path";
-import { createHash } from "crypto";
 import { execFileSync, spawn, type SpawnOptions } from "child_process";
 
 import {
@@ -9,7 +8,9 @@ import {
   type AssetManifest,
 } from "../assets.ts";
 import type { BuildConfig, Architecture } from "./config.ts";
+import { computeFileHash } from "./helpers.ts";
 import { ensureSandboxHelperBinaries } from "./sandbox-helpers.ts";
+export { computeFileHash } from "./helpers.ts";
 
 /** Fixed output filenames for assets */
 export const KERNEL_FILENAME = "vmlinuz-virt";
@@ -489,24 +490,6 @@ async function buildGuestBinaries(
     { cwd: guestDir },
     log,
   );
-}
-
-/** Compute SHA256 hash of a file */
-export function computeFileHash(filePath: string): string {
-  const hash = createHash("sha256");
-  const fd = fs.openSync(filePath, "r");
-  const buffer = Buffer.allocUnsafe(1024 * 1024);
-
-  try {
-    let bytesRead = 0;
-    while ((bytesRead = fs.readSync(fd, buffer, 0, buffer.length, null)) > 0) {
-      hash.update(buffer.subarray(0, bytesRead));
-    }
-  } finally {
-    fs.closeSync(fd);
-  }
-
-  return hash.digest("hex");
 }
 
 export function writeAssetManifest(
